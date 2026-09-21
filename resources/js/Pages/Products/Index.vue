@@ -1,16 +1,20 @@
 <script setup>
-import { ref, computed } from "vue";
+import { ref, computed, nextTick } from "vue";
 import { router } from "@inertiajs/vue3";
 import { RotateCw, Pencil, PowerOff, Power, Plus } from "lucide-vue-next";
 import Tooltip from "@/Components/Tooltip.vue";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
-import Pagination from '@/Components/Pagination.vue';
+import Pagination from "@/Components/Pagination.vue";
 
 const props = defineProps({
     products: { type: Object, required: true },
 });
 
 const editingProduct = ref(null);
+const isSubmitting = ref(false);
+const isSubmittingRestock = ref(false);
+const nameInputRef = ref(null);
+const packageLabelInputRef = ref(null);
 const form = ref(emptyForm());
 const errors = ref({});
 
@@ -21,6 +25,29 @@ const restockForm = ref({
     note: "",
 });
 const restockErrors = ref({});
+
+// Pone en mayúscula solo la primera letra, sin tocar el resto de lo que ya escribió
+function capitalizeFirst(value) {
+    if (!value) return value;
+    return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+// Aplica la capitalización preservando la posición del cursor — sin esto,
+// el cursor saltaría al final del texto cada vez que se transforma el valor
+function handleCapitalizeInput(event, elRef, setter) {
+    const el = event.target;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const capitalized = capitalizeFirst(el.value);
+
+    setter(capitalized);
+
+    if (capitalized !== el.value) {
+        nextTick(() => {
+            elRef.value?.setSelectionRange(start, end);
+        });
+    }
+}
 
 function emptyForm() {
     return {
@@ -61,9 +88,14 @@ function openEditForm(product) {
 }
 
 function submit() {
+    if (isSubmitting.value) return; // protección extra por si el evento se dispara dos veces
+
+    isSubmitting.value = true;
+
     const options = {
         onError: (formErrors) => (errors.value = formErrors),
         onSuccess: () => openCreateForm(),
+        onFinish: () => (isSubmitting.value = false), // se ejecuta SIEMPRE: éxito, error o fallo de red
     };
 
     if (editingProduct.value) {
@@ -112,6 +144,10 @@ const restockUnitCostPreview = computed(() => {
 });
 
 function submitRestock() {
+    if (isSubmittingRestock.value) return;
+
+    isSubmittingRestock.value = true;
+
     router.post(
         route("products.restock", restockingProduct.value.id),
         restockForm.value,
@@ -119,6 +155,7 @@ function submitRestock() {
             preserveScroll: true,
             onError: (formErrors) => (restockErrors.value = formErrors),
             onSuccess: () => (restockingProduct.value = null),
+            onFinish: () => (isSubmittingRestock.value = false),
         },
     );
 }
@@ -147,7 +184,15 @@ function submitRestock() {
                             >Nombre</label
                         >
                         <input
-                            v-model="form.name"
+                            ref="nameInputRef"
+                            :value="form.name"
+                            @input="
+                                handleCapitalizeInput(
+                                    $event,
+                                    nameInputRef,
+                                    (v) => (form.name = v),
+                                )
+                            "
                             type="text"
                             class="mt-1 w-full rounded border-line text-sm focus:border-accent focus:ring-accent"
                         />
@@ -225,7 +270,15 @@ function submitRestock() {
                                 >Nombre del empaque</label
                             >
                             <input
-                                v-model="form.purchase_unit_label"
+                                ref="packageLabelInputRef"
+                                :value="form.purchase_unit_label"
+                                @input="
+                                    handleCapitalizeInput(
+                                        $event,
+                                        packageLabelInputRef,
+                                        (v) => (form.purchase_unit_label = v),
+                                    )
+                                "
                                 type="text"
                                 placeholder="ej: paquete, caja"
                                 class="mt-1 w-full rounded border-line text-sm focus:border-accent focus:ring-accent"
@@ -254,14 +307,17 @@ function submitRestock() {
 
                 <div class="mt-3 flex gap-2">
                     <button
-                        class="flex items-center gap-1.5 rounded bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-dark"
+                        class="flex items-center gap-1.5 rounded bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-dark disabled:cursor-not-allowed disabled:opacity-50"
+                        :disabled="isSubmitting"
                         @click="submit"
                     >
                         <Plus class="h-4 w-4" />
                         {{
-                            editingProduct
-                                ? "Guardar cambios"
-                                : "Crear producto"
+                            isSubmitting
+                                ? "Guardando..."
+                                : editingProduct
+                                  ? "Guardar cambios"
+                                  : "Crear producto"
                         }}
                     </button>
                     <button
@@ -498,10 +554,11 @@ function submitRestock() {
                         Cancelar
                     </button>
                     <button
-                        class="rounded bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-dark"
+                        class="rounded bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-dark disabled:cursor-not-allowed disabled:opacity-50"
+                        :disabled="isSubmittingRestock"
                         @click="submitRestock"
                     >
-                        Guardar
+                        {{ isSubmittingRestock ? "Guardando..." : "Guardar" }}
                     </button>
                 </div>
             </div>

@@ -47,6 +47,9 @@ const productListRef = ref(null);
 const paymentMethod = ref("cash");
 const showMoveModal = ref(false);
 const showCancelModal = ref(false);
+const isPaying = ref(false);
+
+let pollTimer = null;
 
 const filteredProducts = computed(() => {
     const search = productSearch.value.trim().toLowerCase();
@@ -154,10 +157,19 @@ function handleClickOutside(event) {
 
 onMounted(() => {
     document.addEventListener("click", handleClickOutside);
+
+    pollTimer = setInterval(() => {
+        router.reload({
+            only: ["table"],
+            preserveScroll: true,
+            preserveState: true,
+        });
+    }, 4000);
 });
 
 onBeforeUnmount(() => {
     document.removeEventListener("click", handleClickOutside);
+    clearInterval(pollTimer);
 });
 
 function addItem() {
@@ -199,10 +211,15 @@ function removeItem(item) {
 }
 
 function pay() {
-    if (!order.value) return;
-    router.post(route("payments.store", order.value.id), {
-        method: paymentMethod.value,
-    });
+    if (!order.value || isPaying.value) return;
+
+    isPaying.value = true;
+
+    router.post(
+        route("payments.store", order.value.id),
+        { method: paymentMethod.value },
+        { onFinish: () => (isPaying.value = false) },
+    );
 }
 
 function moveToTable(newTableId) {
@@ -455,11 +472,14 @@ function cancelOrder(reason) {
                         <option value="transfer">Transferencia</option>
                     </select>
                     <button
-                        class="flex items-center gap-1.5 rounded bg-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-accent-dark"
-                        :disabled="items.length === 0"
+                        class="flex items-center gap-1.5 rounded bg-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-accent-dark disabled:cursor-not-allowed disabled:opacity-50"
+                        :disabled="items.length === 0 || isPaying"
                         @click="pay"
                     >
-                        <Banknote class="h-4 w-4" /> Cobrar y cerrar mesa
+                        <Banknote class="h-4 w-4" />
+                        {{
+                            isPaying ? "Procesando..." : "Cobrar y cerrar mesa"
+                        }}
                     </button>
                 </div>
             </template>

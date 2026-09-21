@@ -1,6 +1,7 @@
 <script setup>
-import { Link } from "@inertiajs/vue3";
-import { Users, CircleDot } from 'lucide-vue-next';
+import { onMounted, onBeforeUnmount } from "vue";
+import { Link, router } from "@inertiajs/vue3";
+import { Users, CircleDot } from "lucide-vue-next";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 
 const props = defineProps({
@@ -8,6 +9,22 @@ const props = defineProps({
         type: Array,
         required: true,
     },
+});
+
+let pollTimer = null;
+
+onMounted(() => {
+    pollTimer = setInterval(() => {
+        router.reload({
+            only: ["tables"],
+            preserveScroll: true,
+            preserveState: true,
+        });
+    }, 4000);
+});
+
+onBeforeUnmount(() => {
+    clearInterval(pollTimer);
 });
 
 const formatCurrency = (value) =>
