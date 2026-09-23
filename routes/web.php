@@ -55,6 +55,7 @@ Route::middleware('auth')->group(function () {
     Route::patch('/products/{product}/deactivate', [ProductController::class, 'destroy'])->name('products.destroy');
     Route::patch('/products/{product}/restore', [ProductController::class, 'restore'])->name('products.restore');
     Route::post('/products/{product}/restock', [ProductController::class, 'restock'])->name('products.restock');
+    Route::post('/products/{product}/waste', [ProductController::class, 'registerWaste'])->name('products.registerWaste');
 
     // Reportes
     Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');

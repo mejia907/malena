@@ -1,7 +1,15 @@
 <script setup>
 import { ref, computed, nextTick } from "vue";
 import { router } from "@inertiajs/vue3";
-import { RotateCw, Pencil, PowerOff, Power, Plus } from "lucide-vue-next";
+import {
+    RotateCw,
+    Pencil,
+    PowerOff,
+    Power,
+    Plus,
+    Scale,
+    PackageX,
+} from "lucide-vue-next";
 import Tooltip from "@/Components/Tooltip.vue";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 import Pagination from "@/Components/Pagination.vue";
@@ -15,16 +23,28 @@ const isSubmitting = ref(false);
 const isSubmittingRestock = ref(false);
 const nameInputRef = ref(null);
 const packageLabelInputRef = ref(null);
+const restockingProduct = ref(null);
+const restockErrors = ref({});
+const wastingProduct = ref(null);
+const wasteForm = ref({ quantity: 1, reason: "sin_vender", note: "" });
+const wasteErrors = ref({});
+const isSubmittingWaste = ref(false);
+
 const form = ref(emptyForm());
 const errors = ref({});
 
-const restockingProduct = ref(null);
+const wasteReasons = [
+    { value: "sin_vender", label: "No se vendió (perecedero del día)" },
+    { value: "dañado", label: "Dañado o vencido" },
+    { value: "consumo_interno", label: "Consumo interno del personal" },
+    { value: "otro", label: "Otro" },
+];
+
 const restockForm = ref({
     purchase_quantity: 1,
     purchase_total_cost: "",
     note: "",
 });
-const restockErrors = ref({});
 
 // Pone en mayúscula solo la primera letra, sin tocar el resto de lo que ya escribió
 function capitalizeFirst(value) {
@@ -47,6 +67,28 @@ function handleCapitalizeInput(event, elRef, setter) {
             elRef.value?.setSelectionRange(start, end);
         });
     }
+}
+
+function openWasteModal(product) {
+    wastingProduct.value = product;
+    wasteForm.value = { quantity: 1, reason: "sin_vender", note: "" };
+    wasteErrors.value = {};
+}
+
+function submitWaste() {
+    if (isSubmittingWaste.value) return;
+    isSubmittingWaste.value = true;
+
+    router.post(
+        route("products.registerWaste", wastingProduct.value.id),
+        wasteForm.value,
+        {
+            preserveScroll: true,
+            onError: (formErrors) => (wasteErrors.value = formErrors),
+            onSuccess: () => (wastingProduct.value = null),
+            onFinish: () => (isSubmittingWaste.value = false),
+        },
+    );
 }
 
 function emptyForm() {
@@ -251,7 +293,7 @@ function submitRestock() {
                             v-if="editingProduct"
                             class="mt-1 text-xs text-ink/40"
                         >
-                            Usa "Reabastecer" para sumar stock.
+                            Usa "Registrar compra" para sumar stock.
                         </p>
                     </div>
                 </div>
@@ -411,6 +453,14 @@ function submitRestock() {
                                             <RotateCw class="h-4 w-4" />
                                         </button>
                                     </Tooltip>
+                                    <Tooltip text="Registrar merma/pérdida">
+                                        <button
+                                            class="rounded p-1.5 text-danger hover:bg-danger/10"
+                                            @click="openWasteModal(product)"
+                                        >
+                                            <PackageX class="h-4 w-4" />
+                                        </button>
+                                    </Tooltip>
                                     <Tooltip text="Editar">
                                         <button
                                             class="rounded p-1.5 text-ink/60 hover:bg-paper"
@@ -559,6 +609,101 @@ function submitRestock() {
                         @click="submitRestock"
                     >
                         {{ isSubmittingRestock ? "Guardando..." : "Guardar" }}
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal Merma Stock -->
+        <div
+            v-if="wastingProduct"
+            class="fixed inset-0 flex items-center justify-center bg-ink/30"
+            @click.self="wastingProduct = null"
+        >
+            <div class="w-full max-w-sm rounded-lg bg-surface p-5">
+                <h2 class="mb-1 font-semibold text-ink">
+                    Registrar merma: {{ wastingProduct.name }}
+                </h2>
+                <p class="mb-4 text-xs text-ink/70">
+                    Stock disponible: {{ wastingProduct.stock }} unidades
+                </p>
+
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-medium text-ink/70"
+                            >Cantidad perdida</label
+                        >
+                        <input
+                            v-model.number="wasteForm.quantity"
+                            type="number"
+                            min="1"
+                            :max="wastingProduct.stock"
+                            class="mt-1 w-full rounded border-line text-sm focus:border-danger focus:ring-danger"
+                        />
+                        <p
+                            v-if="wasteErrors.quantity"
+                            class="mt-1 text-xs text-danger"
+                        >
+                            {{ wasteErrors.quantity }}
+                        </p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-ink/70"
+                            >Motivo</label
+                        >
+                        <select
+                            v-model="wasteForm.reason"
+                            class="mt-1 w-full rounded border-line text-sm focus:border-danger focus:ring-danger"
+                        >
+                            <option
+                                v-for="r in wasteReasons"
+                                :key="r.value"
+                                :value="r.value"
+                            >
+                                {{ r.label }}
+                            </option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-ink/70"
+                            >Nota (opcional)</label
+                        >
+                        <input
+                            v-model="wasteForm.note"
+                            type="text"
+                            placeholder="ej: quedaron al cierre"
+                            class="mt-1 w-full rounded border-line text-sm focus:border-danger focus:ring-danger"
+                        />
+                    </div>
+
+                    <div class="rounded bg-danger/5 p-3 text-xs text-danger">
+                        Pérdida estimada:
+                        <strong>{{
+                            formatCurrency(
+                                wastingProduct.cost_price *
+                                    (wasteForm.quantity || 0),
+                            )
+                        }}</strong>
+                    </div>
+                </div>
+
+                <div class="mt-4 flex justify-end gap-2">
+                    <button
+                        class="rounded px-3 py-2 text-sm text-ink/70"
+                        @click="wastingProduct = null"
+                    >
+                        Cancelar
+                    </button>
+                    <button
+                        class="rounded bg-danger px-3 py-2 text-sm font-medium text-white hover:bg-danger/90 disabled:opacity-50"
+                        :disabled="isSubmittingWaste"
+                        @click="submitWaste"
+                    >
+                        {{
+                            isSubmittingWaste
+                                ? "Guardando..."
+                                : "Confirmar merma"
+                        }}
                     </button>
                 </div>
             </div>

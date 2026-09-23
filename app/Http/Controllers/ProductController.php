@@ -19,7 +19,7 @@ class ProductController extends Controller
             ->orderBy('name')
             ->paginate(10)
             ->withQueryString()
-            ->through(fn (Product $product) => [
+            ->through(fn(Product $product) => [
                 'id'                       => $product->id,
                 'name'                     => $product->name,
                 'cost_price'               => $product->cost_price,
@@ -108,5 +108,20 @@ class ProductController extends Controller
         }
 
         return $data;
+    }
+
+    public function registerWaste(Request $request, Product $product): RedirectResponse
+    {
+        $data = $request->validate([
+            'quantity' => ['required', 'integer', 'min:1', 'max:' . $product->stock],
+            'reason'   => ['required', 'in:sin_vender,dañado,consumo_interno,otro'],
+            'note'     => ['nullable', 'string', 'max:255'],
+        ], [
+            'quantity.max' => 'No puedes registrar más merma que el stock disponible.',
+        ]);
+
+        $product->registerWaste($data['quantity'], $data['reason'], $data['note'] ?? null);
+
+        return back()->with('success', 'Merma registrada correctamente.');
     }
 }

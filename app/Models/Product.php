@@ -45,6 +45,11 @@ class Product extends Model
         return ! is_null($this->units_per_purchase_unit);
     }
 
+    public function wastes(): HasMany
+    {
+        return $this->hasMany(ProductWaste::class);
+    }
+
     // Registra una compra/reabasto: convierte a unidades individuales, suma al stock
     // y recalcula el costo como PROMEDIO PONDERADO contra el stock que ya había.
     // Esto evita que el costo salte bruscamente si un lote nuevo sale más caro/barato.
@@ -75,5 +80,25 @@ class Product extends Model
         ]);
 
         return $purchase;
+    }
+
+    // Registra producto perdido (no vendido y ya no aprovechable, dañado, o consumo interno).
+    // Descuenta stock y deja registro del costo perdido, para que los reportes reflejen la pérdida real.
+    public function registerWaste(int $quantity, string $reason, ?string $note = null): ProductWaste
+    {
+        $unitCost = (float) $this->cost_price;
+
+        $waste = $this->wastes()->create([
+            'quantity'   => $quantity,
+            'unit_cost'  => $unitCost,
+            'total_cost' => round($unitCost * $quantity, 2),
+            'reason'     => $reason,
+            'note'       => $note,
+            'wasted_at'  => now(),
+        ]);
+
+        $this->decrement('stock', $quantity);
+
+        return $waste;
     }
 }

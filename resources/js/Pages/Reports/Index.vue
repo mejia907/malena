@@ -82,37 +82,46 @@ const topProductId = props.products.data[0]?.id ?? null;
             >
                 <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
                     <div class="rounded border border-line bg-paper/60 p-3">
-                        <p class="text-xs text-ink/70">Ventas totales</p>
+                        <p class="text-xs text-ink/50">Ventas totales</p>
                         <p class="mt-0.5 text-lg font-semibold text-ink">
                             {{ formatCurrency(summary.total_sales) }}
                         </p>
                     </div>
                     <div class="rounded border border-line bg-paper/60 p-3">
-                        <p class="text-xs text-ink/70">Efectivo</p>
+                        <p class="text-xs text-ink/50">Efectivo</p>
                         <p class="mt-0.5 text-lg font-semibold text-ink">
                             {{ formatCurrency(summary.total_cash) }}
                         </p>
                     </div>
                     <div class="rounded border border-line bg-paper/60 p-3">
-                        <p class="text-xs text-ink/70">Transferencia</p>
+                        <p class="text-xs text-ink/50">Transferencia</p>
                         <p class="mt-0.5 text-lg font-semibold text-ink">
                             {{ formatCurrency(summary.total_transfer) }}
                         </p>
                     </div>
                     <div class="rounded border border-line bg-paper/60 p-3">
-                        <p class="text-xs text-ink/70">Costo total</p>
+                        <p class="text-xs text-ink/50">Costo total</p>
                         <p class="mt-0.5 text-lg font-semibold text-ink">
                             {{ formatCurrency(summary.total_cost) }}
                         </p>
                     </div>
+                    <button
+                        class="rounded border border-danger/30 bg-danger/5 p-3 text-left transition hover:border-danger"
+                        @click="showWasteModal = true"
+                    >
+                        <p class="text-xs text-danger">Pérdida por merma</p>
+                        <p class="mt-0.5 text-lg font-semibold text-danger">
+                            {{ formatCurrency(summary.total_waste_cost) }}
+                        </p>
+                    </button>
                     <div class="rounded border border-ok/30 bg-ok/5 p-3">
-                        <p class="text-xs text-ok">Ganancia neta</p>
+                        <p class="text-xs text-ok">Ganancia neta (con merma)</p>
                         <p class="mt-0.5 text-lg font-semibold text-ok">
-                            {{ formatCurrency(summary.total_profit) }}
+                            {{ formatCurrency(summary.net_profit_after_waste) }}
                         </p>
                     </div>
                     <div class="rounded border border-line bg-paper/60 p-3">
-                        <p class="text-xs text-ink/70">Pedidos cobrados</p>
+                        <p class="text-xs text-ink/50">Pedidos cobrados</p>
                         <p class="mt-0.5 text-lg font-semibold text-ink">
                             {{ summary.orders_count }}
                         </p>
