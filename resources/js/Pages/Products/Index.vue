@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, nextTick } from "vue";
+import { ref, computed, nextTick, watch } from "vue";
 import { router } from "@inertiajs/vue3";
 import {
     RotateCw,
@@ -7,8 +7,9 @@ import {
     PowerOff,
     Power,
     Plus,
-    Scale,
     PackageX,
+    Search,
+    X,
 } from "lucide-vue-next";
 import Tooltip from "@/Components/Tooltip.vue";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
@@ -16,6 +17,7 @@ import Pagination from "@/Components/Pagination.vue";
 
 const props = defineProps({
     products: { type: Object, required: true },
+    filters: { type: Object, default: () => ({}) },
 });
 
 const editingProduct = ref(null);
@@ -29,6 +31,7 @@ const wastingProduct = ref(null);
 const wasteForm = ref({ quantity: 1, reason: "sin_vender", note: "" });
 const wasteErrors = ref({});
 const isSubmittingWaste = ref(false);
+const search = ref(props.filters.search ?? "");
 
 const form = ref(emptyForm());
 const errors = ref({});
@@ -201,6 +204,19 @@ function submitRestock() {
         },
     );
 }
+
+let searchDebounce = null;
+
+watch(search, (value) => {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => {
+        router.get(
+            route("products.index"),
+            { search: value || undefined }, // undefined = no manda el parámetro si está vacío, limpia el filtro
+            { preserveState: true, preserveScroll: true, replace: true },
+        );
+    }, 400);
+});
 </script>
 
 <template>
@@ -376,6 +392,34 @@ function submitRestock() {
             <div
                 class="overflow-hidden rounded-lg border border-line bg-surface shadow-sm"
             >
+                <!-- Buscador -->
+                <div
+                    class="flex items-center gap-3 border-b border-line bg-paper/60 px-4 py-3"
+                >
+                    <div class="relative flex-1">
+                        <Search
+                            class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink/30"
+                        />
+                        <input
+                            v-model="search"
+                            type="text"
+                            placeholder="Buscar producto por nombre..."
+                            class="w-full rounded-md border-line bg-surface pl-9 pr-9 text-sm focus:border-accent focus:ring-accent"
+                        />
+                        <button
+                            v-if="search"
+                            class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink/30 hover:text-ink"
+                            @click="search = ''"
+                        >
+                            <X class="h-4 w-4" />
+                        </button>
+                    </div>
+                    <span v-if="search" class="shrink-0 text-xs text-ink/40">
+                        {{ products.total }} resultado{{
+                            products.total === 1 ? "" : "s"
+                        }}
+                    </span>
+                </div>
                 <table class="w-full text-sm">
                     <thead
                         class="border-b border-line bg-accent text-left text-white"

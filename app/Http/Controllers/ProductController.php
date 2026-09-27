@@ -12,10 +12,13 @@ use Inertia\Response;
 
 class ProductController extends Controller
 {
-    public function index(): Response
+    public function index(Request $request): Response
     {
         $products = Product::query()
             ->withCount('purchases')
+            ->when($request->filled('search'), function ($query) use ($request) {
+                $query->where('name', 'like', '%' . $request->input('search') . '%');
+            })
             ->orderBy('name')
             ->paginate(10)
             ->withQueryString()
@@ -32,7 +35,10 @@ class ProductController extends Controller
                 'purchases_count'          => $product->purchases_count,
             ]);
 
-        return Inertia::render('Products/Index', ['products' => $products]);
+        return Inertia::render('Products/Index', [
+            'products' => $products,
+            'filters'  => $request->only('search'),
+        ]);
     }
 
     public function store(Request $request): RedirectResponse

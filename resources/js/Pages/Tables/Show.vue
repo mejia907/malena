@@ -48,6 +48,7 @@ const paymentMethod = ref("cash");
 const showMoveModal = ref(false);
 const showCancelModal = ref(false);
 const isPaying = ref(false);
+const stockError = ref(null);
 
 let pollTimer = null;
 
@@ -175,6 +176,8 @@ onBeforeUnmount(() => {
 function addItem() {
     if (!selectedProductId.value) return;
 
+    stockError.value = null;
+
     router.post(
         route("orders.addItem", props.table.id),
         {
@@ -183,6 +186,9 @@ function addItem() {
         },
         {
             preserveScroll: true,
+            onError: (errors) => {
+                stockError.value = errors.stock ?? null;
+            },
             onSuccess: () => {
                 selectedProductId.value = "";
                 productSearch.value = "";
@@ -196,10 +202,17 @@ let debounceTimer = null;
 function updateQuantity(item, quantity) {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
+        stockError.value = null;
+
         router.patch(
             route("orders.updateItem", item.id),
             { quantity },
-            { preserveScroll: true },
+            {
+                preserveScroll: true,
+                onError: (errors) => {
+                    stockError.value = errors.stock ?? null;
+                },
+            },
         );
     }, 400);
 }
@@ -338,6 +351,12 @@ function cancelOrder(reason) {
                         <Package class="h-4 w-4" />
                         Producto
                     </label>
+                    <div
+                        v-if="stockError"
+                        class="rounded-lg border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
+                    >
+                        {{ stockError }}
+                    </div>
                     <div class="relative" ref="productDropdownRef">
                         <input
                             v-model="productSearch"

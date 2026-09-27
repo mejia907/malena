@@ -9,6 +9,7 @@ use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\Table;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -24,21 +25,32 @@ class OrderController extends Controller
         ]);
 
         DB::transaction(function () use ($table, $data) {
-            // findOrCreate del pedido abierto de la mesa (evita duplicar pedidos activos)
             $order = $table->activeOrder()->first() ?? $table->orders()->create([
-                'status'     => OrderStatus::Open,
-                'opened_at'  => now(),
+                'status'    => OrderStatus::Open,
+                'opened_at' => now(),
             ]);
 
-            $product = Product::findOrFail($data['product_id']);
+            // Bloquea la fila del producto mientras validamos y escribimos, para que dos
+            // dispositivos agregando el mismo producto al mismo tiempo no superen el stock real
+            $product = Product::query()->lockForUpdate()->findOrFail($data['product_id']);
 
-            // Si el producto ya está en el pedido, suma cantidad en vez de duplicar la fila
             $item = $order->items()->where('product_id', $product->id)->first();
+            $currentQuantityInOrder = $item?->quantity ?? 0;
+            $desiredQuantity = $currentQuantityInOrder + $data['quantity'];
+
+            if ($desiredQuantity > $product->stock) {
+                $available = $product->stock - $currentQuantityInOrder;
+                throw ValidationException::withMessages([
+                    'stock' => $available > 0
+                        ? "Solo quedan {$available} unidades disponibles de \"{$product->name}\"."
+                        : "No hay más stock disponible de \"{$product->name}\".",
+                ]);
+            }
 
             if ($item) {
                 $item->update([
-                    'quantity' => $item->quantity + $data['quantity'],
-                    'subtotal' => ($item->quantity + $data['quantity']) * $item->unit_price,
+                    'quantity' => $desiredQuantity,
+                    'subtotal' => $desiredQuantity * $item->unit_price,
                 ]);
             } else {
                 $order->items()->create([
@@ -54,7 +66,7 @@ class OrderController extends Controller
             $order->recalculateTotals();
 
             if ($table->status !== TableStatus::Occupied) {
-                $table->update(['status' => TableStatus::Occupied]);
+                $table->update(['status' => TableStatus::Occupied->value]);
             }
         });
 
@@ -73,12 +85,23 @@ class OrderController extends Controller
 
             if ($data['quantity'] === 0) {
                 $item->delete();
-            } else {
-                $item->update([
-                    'quantity' => $data['quantity'],
-                    'subtotal' => $data['quantity'] * $item->unit_price,
+                $order->recalculateTotals();
+                return;
+            }
+
+            // Bloquea el producto para validar contra el stock real en este momento
+            $product = Product::query()->lockForUpdate()->find($item->product_id);
+
+            if ($data['quantity'] > $product->stock) {
+                throw ValidationException::withMessages([
+                    'stock' => "Solo hay {$product->stock} unidades disponibles de \"{$product->name}\".",
                 ]);
             }
+
+            $item->update([
+                'quantity' => $data['quantity'],
+                'subtotal' => $data['quantity'] * $item->unit_price,
+            ]);
 
             $order->recalculateTotals();
         });
@@ -137,7 +160,7 @@ class OrderController extends Controller
 
         DB::transaction(function () use ($order, $data) {
             $order->update([
-                'status'        => OrderStatus::Cancelled,
+                'status'        => OrderStatus::Cancelled->value,
                 'cancel_reason' => $data['reason'] ?? null,
                 'closed_at'     => now(),
             ]);
