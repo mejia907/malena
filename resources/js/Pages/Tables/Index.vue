@@ -58,6 +58,7 @@ const formatCurrency = (value) =>
                         <span class="text-lg font-semibold text-ink">{{
                             table.name
                         }}</span>
+
                         <span
                             class="flex items-center gap-1.5 text-xs font-medium text-ink/70"
                         >
@@ -76,6 +77,13 @@ const formatCurrency = (value) =>
                             }}
                         </span>
                     </div>
+
+                    <p
+                        v-if="table.customer_name"
+                        class="mt-1 truncate text-sm font-medium text-accent-dark"
+                    >
+                        {{ table.customer_name }}
+                    </p>
 
                     <div class="mt-4">
                         <p class="flex items-center gap-1 text-xs text-ink/70">

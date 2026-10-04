@@ -10,11 +10,11 @@ import {
 import { router } from "@inertiajs/vue3";
 import {
     Trash2,
-    Plus,
+    Image as ImageIcon,
     ArrowRightLeft,
     XCircle,
     Banknote,
-    Package,
+    ArrowLeft,
 } from "lucide-vue-next";
 import Tooltip from "@/Components/Tooltip.vue";
 import PageHeader from "@/Components/PageHeader.vue";
@@ -22,7 +22,7 @@ import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 
 const props = defineProps({
     table: { type: Object, required: true },
-    products: { type: Array, required: true },
+    menu: { type: Array, required: true },
     otherFreeTables: { type: Array, required: true },
 });
 
@@ -49,6 +49,10 @@ const showMoveModal = ref(false);
 const showCancelModal = ref(false);
 const isPaying = ref(false);
 const stockError = ref(null);
+const selectedCategory = ref(null); // null = mostrando las cards de categorías
+const pendingProductIds = ref(new Set()); // productos con un tap en curso (para deshabilitar su card)
+const customerName = ref(order.value?.customer_name ?? "");
+const customerNameInputRef = ref(null);
 
 let pollTimer = null;
 
@@ -68,52 +72,78 @@ watch(filteredProducts, () => {
     highlightedIndex.value = -1;
 });
 
-function handleKeydown(event) {
-    if (
-        !showProductOptions.value &&
-        ["ArrowDown", "ArrowUp"].includes(event.key)
-    ) {
-        showProductOptions.value = true;
-        return;
-    }
+watch(
+    () => order.value?.id,
+    () => {
+        customerName.value = order.value?.customer_name ?? "";
+    },
+);
 
-    switch (event.key) {
-        case "ArrowDown":
-            event.preventDefault();
-            if (filteredProducts.value.length === 0) return;
-            highlightedIndex.value =
-                (highlightedIndex.value + 1) % filteredProducts.value.length;
-            scrollToHighlighted();
-            break;
+function formatMoney(value) {
+    return new Intl.NumberFormat("es-CO", {
+        style: "currency",
+        currency: "COP",
+        maximumFractionDigits: 0,
+    }).format(value);
+}
 
-        case "ArrowUp":
-            event.preventDefault();
-            if (filteredProducts.value.length === 0) return;
-            highlightedIndex.value =
-                (highlightedIndex.value - 1 + filteredProducts.value.length) %
-                filteredProducts.value.length;
-            scrollToHighlighted();
-            break;
+function openCategory(category) {
+    selectedCategory.value = category;
+}
 
-        case "Enter":
-            event.preventDefault();
-            if (
-                showProductOptions.value &&
-                highlightedIndex.value >= 0 &&
-                filteredProducts.value[highlightedIndex.value]
-            ) {
-                selectAndAdd(filteredProducts.value[highlightedIndex.value]);
-            } else if (selectedProductId.value) {
-                // Si ya hay uno seleccionado pero no hay highlight, agrega el actual
-                addItem();
-            }
-            break;
+function backToCategories() {
+    selectedCategory.value = null;
+}
 
-        case "Escape":
-            showProductOptions.value = false;
-            highlightedIndex.value = -1;
-            break;
-    }
+let customerNameDebounce = null;
+
+function handleCustomerNameInput(event) {
+    handleCapitalizeInput(
+        event,
+        customerNameInputRef,
+        (v) => (customerName.value = v),
+    );
+
+    if (!order.value) return;
+
+    clearTimeout(customerNameDebounce);
+    customerNameDebounce = setTimeout(() => {
+        router.patch(
+            route("orders.updateCustomerName", order.value.id),
+            { customer_name: customerName.value },
+            { preserveScroll: true, preserveState: true },
+        );
+    }, 500);
+}
+
+// Cantidad ya agregada al pedido actual para un producto — se muestra como badge en su card
+function quantityInOrder(productId) {
+    const item = items.value.find(
+        (i) => i.product_id === productId || i.product?.id === productId,
+    );
+    return item?.quantity ?? 0;
+}
+
+function tapProduct(product) {
+    if (pendingProductIds.value.has(product.id)) return; // evita doble tap mientras procesa
+
+    stockError.value = null;
+    pendingProductIds.value.add(product.id);
+
+    router.post(
+        route("orders.addItem", props.table.id),
+        { product_id: product.id, quantity: 1 },
+        {
+            preserveScroll: true,
+            preserveState: true,
+            onError: (errors) => {
+                stockError.value = errors.stock ?? null;
+            },
+            onFinish: () => {
+                pendingProductIds.value.delete(product.id);
+            },
+        },
+    );
 }
 
 function scrollToHighlighted() {
@@ -123,28 +153,27 @@ function scrollToHighlighted() {
     });
 }
 
-function selectAndAdd(product) {
-    selectedProductId.value = product.id;
-    productSearch.value = product.name;
-    showProductOptions.value = false;
-    highlightedIndex.value = -1;
-
-    // Agregar directo
-    nextTick(() => {
-        addItem();
-    });
+// Pone en mayúscula solo la primera letra, sin tocar el resto de lo que ya escribió
+function capitalizeFirst(value) {
+    if (!value) return value;
+    return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-function selectProduct(product) {
-    selectedProductId.value = product.id;
-    productSearch.value = product.name;
-    showProductOptions.value = false;
-}
+// Aplica la capitalización preservando la posición del cursor — sin esto,
+// el cursor saltaría al final del texto cada vez que se transforma el valor
+function handleCapitalizeInput(event, elRef, setter) {
+    const el = event.target;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const capitalized = capitalizeFirst(el.value);
 
-function clearProduct() {
-    selectedProductId.value = "";
-    productSearch.value = "";
-    showProductOptions.value = false;
+    setter(capitalized);
+
+    if (capitalized !== el.value) {
+        nextTick(() => {
+            elRef.value?.setSelectionRange(start, end);
+        });
+    }
 }
 
 function handleClickOutside(event) {
@@ -172,31 +201,6 @@ onBeforeUnmount(() => {
     document.removeEventListener("click", handleClickOutside);
     clearInterval(pollTimer);
 });
-
-function addItem() {
-    if (!selectedProductId.value) return;
-
-    stockError.value = null;
-
-    router.post(
-        route("orders.addItem", props.table.id),
-        {
-            product_id: selectedProductId.value,
-            quantity: selectedQuantity.value,
-        },
-        {
-            preserveScroll: true,
-            onError: (errors) => {
-                stockError.value = errors.stock ?? null;
-            },
-            onSuccess: () => {
-                selectedProductId.value = "";
-                productSearch.value = "";
-                selectedQuantity.value = 1;
-            },
-        },
-    );
-}
 
 let debounceTimer = null;
 function updateQuantity(item, quantity) {
@@ -258,6 +262,16 @@ function cancelOrder(reason) {
                     </span>
                 </template>
             </PageHeader>
+
+            <div v-if="order" class="mt-3">
+                <input
+                    v-model="customerName"
+                    type="text"
+                    placeholder="Nombre del cliente (opcional)"
+                    class="w-full max-w-xs rounded-md border-line bg-surface text-sm focus:border-accent focus:ring-accent"
+                    @input="handleCustomerNameInput"
+                />
+            </div>
         </template>
 
         <div class="mx-auto max-w-4xl px-4 py-8 space-y-4">
@@ -340,108 +354,120 @@ function cancelOrder(reason) {
                 pedido.
             </div>
 
-            <!-- Agregar producto -->
-            <div
-                class="flex flex-wrap items-end gap-3 rounded-lg border border-line bg-surface p-4 shadow-sm"
-            >
-                <div class="flex-1 min-w-[200px]">
-                    <label
-                        class="text-xs font-medium text-ink/100 items-start gap-1.5 flex mb-1"
-                    >
-                        <Package class="h-4 w-4" />
-                        Producto
-                    </label>
-                    <div
-                        v-if="stockError"
-                        class="rounded-lg border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
-                    >
-                        {{ stockError }}
-                    </div>
-                    <div class="relative" ref="productDropdownRef">
-                        <input
-                            v-model="productSearch"
-                            type="text"
-                            placeholder="Buscar producto..."
-                            autocomplete="off"
-                            class="mt-1 w-full rounded border-line pr-8 text-sm focus:border-accent focus:ring-accent"
-                            @focus="showProductOptions = true"
-                            @input="showProductOptions = true"
-                            @keydown="handleKeydown"
-                        />
-
-                        <!-- Botón limpiar -->
+            <!-- Selector de productos por categoría -->
+            <div class="rounded-lg border border-line bg-surface p-4 shadow-sm">
+                <!-- Vista: categorías -->
+                <div v-if="!selectedCategory">
+                    <h2 class="mb-3 text-sm font-semibold text-ink">
+                        Selecciona una categoría
+                    </h2>
+                    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
                         <button
-                            v-if="productSearch"
-                            type="button"
-                            class="absolute right-2 top-1/2 -translate-y-1/2 mt-0.5 text-ink/40 hover:text-ink"
-                            @mousedown.prevent
-                            @click.stop="clearProduct"
-                            aria-label="Limpiar producto"
+                            v-for="category in menu"
+                            :key="category.id ?? 'uncategorized'"
+                            class="flex flex-col items-center justify-center gap-1 rounded-lg border border-line bg-paper/60 px-3 py-5 text-center transition hover:border-accent hover:bg-accent/5"
+                            @click="openCategory(category)"
                         >
-                            ✕
+                            <span class="text-nomral font-semibold text-ink">{{
+                                category.name
+                            }}</span>
+                            <span class="text-xs text-ink/40"
+                                >{{ category.products.length }} producto{{
+                                    category.products.length === 1 ? "" : "s"
+                                }}</span
+                            >
                         </button>
+                    </div>
+                    <p
+                        v-if="menu.length === 0"
+                        class="py-6 text-center text-sm text-ink/40"
+                    >
+                        No hay productos activos configurados todavía.
+                    </p>
+                </div>
 
-                        <div
-                            v-if="showProductOptions"
-                            ref="productListRef"
-                            class="absolute z-50 mt-1 max-h-60 w-full overflow-y-auto rounded border border-line bg-surface shadow-lg"
+                <!-- Vista: productos de la categoría seleccionada -->
+                <div v-else>
+                    <div class="mb-3 flex items-center gap-2">
+                        <button
+                            class="flex h-8 w-8 items-center justify-center rounded-full border border-line text-ink/50 hover:border-accent hover:text-accent-dark"
+                            @click="backToCategories"
                         >
-                            <button
-                                v-for="(product, index) in filteredProducts"
-                                :key="product.id"
-                                type="button"
-                                :class="[
-                                    'flex w-full items-center justify-between px-3 py-2 text-left text-sm',
-                                    index === highlightedIndex
-                                        ? 'bg-accent/10'
-                                        : 'hover:bg-paper',
-                                ]"
-                                @mouseenter="highlightedIndex = index"
-                                @click="selectProduct(product)"
+                            <ArrowLeft class="h-4 w-4" />
+                        </button>
+                        <h2 class="text-sm font-semibold text-ink">
+                            {{ selectedCategory.name }}
+                        </h2>
+                    </div>
+
+                    <div
+                        class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4"
+                    >
+                        <button
+                            v-for="product in selectedCategory.products"
+                            :key="product.id"
+                            class="relative flex flex-col overflow-hidden rounded-lg border border-line bg-paper/60 text-left transition hover:border-accent hover:bg-accent/5 disabled:cursor-not-allowed disabled:opacity-40"
+                            :disabled="
+                                product.stock <= 0 ||
+                                pendingProductIds.has(product.id)
+                            "
+                            @click="tapProduct(product)"
+                        >
+                            <!-- Badge de cantidad ya en el pedido -->
+                            <span
+                                v-if="quantityInOrder(product.id) > 0"
+                                class="absolute right-1.5 top-1.5 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-xs font-semibold text-white"
                             >
-                                <span class="truncate text-ink">
-                                    {{ product.name }}
-                                </span>
+                                {{ quantityInOrder(product.id) }}
+                            </span>
 
-                                <span
-                                    class="ml-3 shrink-0 text-xs text-ink/100"
-                                >
-                                    {{
-                                        new Intl.NumberFormat("es-CO", {
-                                            style: "currency",
-                                            currency: "COP",
-                                            maximumFractionDigits: 0,
-                                        }).format(product.sale_price)
-                                    }}
-                                </span>
-                            </button>
-
+                            <!-- Imagen o placeholder -->
                             <div
-                                v-if="filteredProducts.length === 0"
-                                class="px-3 py-3 text-center text-sm text-ink/40"
+                                class="flex aspect-square items-center justify-center bg-surface"
                             >
-                                No se encontraron productos.
+                                <img
+                                    v-if="product.image_url"
+                                    :src="product.image_url"
+                                    :alt="product.name"
+                                    class="h-full w-full object-cover"
+                                    loading="lazy"
+                                />
+                                <ImageIcon v-else class="h-8 w-8 text-ink/15" />
                             </div>
-                        </div>
+
+                            <div class="p-2">
+                                <p
+                                    class="truncate text-xs font-medium text-ink"
+                                >
+                                    {{ product.name }}
+                                </p>
+                                <p class="text-xs text-ink/50">
+                                    {{ formatMoney(product.sale_price) }}
+                                </p>
+                                <p
+                                    v-if="product.stock <= 0"
+                                    class="text-xs font-medium text-danger"
+                                >
+                                    Agotado
+                                </p>
+                                <p
+                                    v-else-if="product.stock <= 5"
+                                    class="text-xs text-warn"
+                                >
+                                    Quedan {{ product.stock }}
+                                </p>
+                            </div>
+                        </button>
                     </div>
                 </div>
-                <div>
-                    <label class="block text-xs font-medium text-ink/100"
-                        >Cantidad</label
-                    >
-                    <input
-                        v-model.number="selectedQuantity"
-                        type="number"
-                        min="1"
-                        class="mt-1 w-20 rounded border-line text-sm focus:border-accent focus:ring-accent"
-                    />
-                </div>
-                <button
-                    class="flex items-center gap-1.5 rounded bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-dark"
-                    @click="addItem"
-                >
-                    <Plus class="h-4 w-4" /> Agregar
-                </button>
+            </div>
+
+            <!-- Mensaje de error de stock -->
+            <div
+                v-if="stockError"
+                class="rounded-lg border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
+            >
+                {{ stockError }}
             </div>
 
             <!-- Total: el punto focal real de la pantalla -->

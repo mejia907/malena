@@ -10,6 +10,7 @@ import {
     PackageX,
     Search,
     X,
+    Image as ImageIcon,
 } from "lucide-vue-next";
 import Tooltip from "@/Components/Tooltip.vue";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
@@ -18,6 +19,7 @@ import Pagination from "@/Components/Pagination.vue";
 const props = defineProps({
     products: { type: Object, required: true },
     filters: { type: Object, default: () => ({}) },
+    categories: { type: Array, required: true },
 });
 
 const editingProduct = ref(null);
@@ -32,6 +34,8 @@ const wasteForm = ref({ quantity: 1, reason: "sin_vender", note: "" });
 const wasteErrors = ref({});
 const isSubmittingWaste = ref(false);
 const search = ref(props.filters.search ?? "");
+const imagePreview = ref(null); // URL temporal para previsualizar antes de guardar
+const imageInputRef = ref(null);
 
 const form = ref(emptyForm());
 const errors = ref({});
@@ -102,6 +106,8 @@ function emptyForm() {
         stock: "",
         purchase_unit_label: "",
         units_per_purchase_unit: "",
+        product_category_id: "",
+        image: null,
     };
 }
 
@@ -117,6 +123,7 @@ function openCreateForm() {
     editingProduct.value = null;
     form.value = emptyForm();
     errors.value = {};
+    clearImageSelection();
 }
 
 function openEditForm(product) {
@@ -128,7 +135,10 @@ function openEditForm(product) {
         stock: product.stock,
         purchase_unit_label: product.purchase_unit_label ?? "",
         units_per_purchase_unit: product.units_per_purchase_unit ?? "",
+        product_category_id: product.product_category_id ?? "",
+        image: null,
     };
+    imagePreview.value = null; // se usa la imagen ya guardada (product.image_url) hasta que elijan una nueva
     errors.value = {};
 }
 
@@ -138,15 +148,21 @@ function submit() {
     isSubmitting.value = true;
 
     const options = {
+        forceFormData: true, // obligatorio cuando el formulario puede incluir un archivo
         onError: (formErrors) => (errors.value = formErrors),
-        onSuccess: () => openCreateForm(),
+        onSuccess: () => {
+            openCreateForm();
+            clearImageSelection();
+        },
         onFinish: () => (isSubmitting.value = false), // se ejecuta SIEMPRE: éxito, error o fallo de red
     };
 
     if (editingProduct.value) {
-        router.patch(
+        // PATCH con archivos no funciona en navegadores — se envía como POST
+        // con un campo _method que Laravel traduce internamente a PATCH
+        router.post(
             route("products.update", editingProduct.value.id),
-            form.value,
+            { ...form.value, _method: "patch" },
             options,
         );
     } else {
@@ -169,6 +185,27 @@ function openRestockModal(product) {
         note: "",
     };
     restockErrors.value = {};
+}
+
+function handleImageChange(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    form.value.image = file;
+    imagePreview.value = URL.createObjectURL(file);
+}
+
+function clearImageSelection() {
+    form.value.image = null;
+    imagePreview.value = null;
+    if (imageInputRef.value) imageInputRef.value.value = "";
+}
+
+function removeExistingImage(product) {
+    if (!confirm("¿Quitar la imagen de este producto?")) return;
+    router.delete(route("products.removeImage", product.id), {
+        preserveScroll: true,
+    });
 }
 
 const restockUnitsPreview = computed(() => {
@@ -236,7 +273,7 @@ watch(search, (value) => {
                     }}
                 </h2>
 
-                <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
                     <div class="col-span-2 sm:col-span-1">
                         <label class="block text-xs font-medium text-ink/70"
                             >Nombre</label
@@ -312,6 +349,24 @@ watch(search, (value) => {
                             Usa "Registrar compra" para sumar stock.
                         </p>
                     </div>
+                    <div>
+                        <label class="block text-xs font-medium text-ink/70"
+                            >Categoría</label
+                        >
+                        <select
+                            v-model="form.product_category_id"
+                            class="mt-1 w-full rounded border-line text-sm focus:border-accent focus:ring-accent"
+                        >
+                            <option value="">Sin categoría</option>
+                            <option
+                                v-for="category in categories"
+                                :key="category.id"
+                                :value="category.id"
+                            >
+                                {{ category.name }}
+                            </option>
+                        </select>
+                    </div>
                 </div>
 
                 <!-- Configuración de compra empaquetada -->
@@ -359,6 +414,77 @@ watch(search, (value) => {
                             >
                                 {{ errors.units_per_purchase_unit }}
                             </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div
+                    class="mt-3 rounded border border-dashed border-line bg-paper/60 p-3"
+                >
+                    <p class="mb-2 text-xs font-medium text-ink/70">
+                        Foto del producto (opcional)
+                    </p>
+
+                    <div class="flex items-center gap-3">
+                        <!-- Previsualización: imagen nueva seleccionada, o la que ya tiene el producto, o un placeholder -->
+                        <div
+                            class="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-line bg-surface"
+                        >
+                            <img
+                                v-if="imagePreview"
+                                :src="imagePreview"
+                                alt="Previsualización"
+                                class="h-full w-full object-contain"
+                            />
+                            <img
+                                v-else-if="editingProduct?.image_url"
+                                :src="editingProduct.image_url"
+                                alt="Imagen actual"
+                                class="h-full w-full object-contain"
+                            />
+                            <ImageIcon v-else class="h-6 w-6 text-ink/20" />
+                        </div>
+
+                        <div class="flex-1">
+                            <input
+                                ref="imageInputRef"
+                                type="file"
+                                accept="image/png, image/jpeg, image/webp"
+                                class="block w-full text-xs text-ink/60 file:mr-3 file:rounded file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white hover:file:bg-accent-dark"
+                                @change="handleImageChange"
+                            />
+                            <p class="mt-1 text-xs text-ink/40">
+                                Se optimiza y redimensiona automáticamente al
+                                guardar.
+                            </p>
+                            <p
+                                v-if="errors.image"
+                                class="mt-1 text-xs text-danger"
+                            >
+                                {{ errors.image }}
+                            </p>
+
+                            <div class="mt-1 flex gap-3">
+                                <button
+                                    v-if="imagePreview"
+                                    type="button"
+                                    class="text-xs text-ink/50 hover:text-ink"
+                                    @click="clearImageSelection"
+                                >
+                                    Cancelar selección
+                                </button>
+                                <button
+                                    v-if="
+                                        editingProduct?.image_url &&
+                                        !imagePreview
+                                    "
+                                    type="button"
+                                    class="text-xs text-danger hover:underline"
+                                    @click="removeExistingImage(editingProduct)"
+                                >
+                                    Quitar imagen actual
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -444,16 +570,48 @@ watch(search, (value) => {
                             :class="{ 'opacity-50': !product.is_active }"
                         >
                             <td class="px-4 py-2.5 text-ink">
-                                {{ product.name }}
-                                <span
-                                    v-if="product.units_per_purchase_unit"
-                                    class="ml-1 text-xs text-ink/40"
-                                >
-                                    ({{
-                                        product.purchase_unit_label || "paquete"
-                                    }}
-                                    de {{ product.units_per_purchase_unit }})
-                                </span>
+                                <div class="flex items-center gap-2.5">
+                                    <div
+                                        class="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded border border-line bg-paper"
+                                    >
+                                        <img
+                                            v-if="product.image_url"
+                                            :src="product.image_url"
+                                            :alt="product.name"
+                                            class="h-full w-full object-contain"
+                                        />
+                                        <ImageIcon
+                                            v-else
+                                            class="h-4 w-4 text-ink/20"
+                                        />
+                                    </div>
+                                    <div>
+                                        <p>
+                                            {{ product.name }}
+                                            <span
+                                                v-if="
+                                                    product.units_per_purchase_unit
+                                                "
+                                                class="text-xs text-ink/40"
+                                            >
+                                                ({{
+                                                    product.purchase_unit_label ||
+                                                    "paquete"
+                                                }}
+                                                de
+                                                {{
+                                                    product.units_per_purchase_unit
+                                                }})
+                                            </span>
+                                        </p>
+                                        <p
+                                            v-if="product.category_name"
+                                            class="text-xs text-ink/40"
+                                        >
+                                            {{ product.category_name }}
+                                        </p>
+                                    </div>
+                                </div>
                             </td>
                             <td class="px-4 py-2.5">
                                 {{ formatCurrency(product.cost_price) }}

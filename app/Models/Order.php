@@ -11,8 +11,14 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class Order extends Model
 {
     protected $fillable = [
-        'table_id', 'status', 'total', 'total_cost',
-        'cancel_reason', 'opened_at', 'closed_at',
+        'table_id',
+        'customer_name',
+        'status',
+        'total',
+        'total_cost',
+        'cancel_reason',
+        'opened_at',
+        'closed_at',
     ];
 
     protected $casts = [
@@ -46,7 +52,7 @@ class Order extends Model
 
         $this->update([
             'total'      => $this->items->sum('subtotal'),
-            'total_cost' => $this->items->sum(fn ($item) => $item->unit_cost * $item->quantity),
+            'total_cost' => $this->items->sum(fn($item) => $item->unit_cost * $item->quantity),
         ]);
     }
 

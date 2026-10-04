@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Product extends Model
 {
@@ -15,6 +16,8 @@ class Product extends Model
         'is_active',
         'purchase_unit_label',
         'units_per_purchase_unit',
+        'product_category_id',
+        'image_path',
     ];
 
     protected $casts = [
@@ -31,6 +34,11 @@ class Product extends Model
     public function purchases(): HasMany
     {
         return $this->hasMany(ProductPurchase::class);
+    }
+
+    public function category(): BelongsTo
+    {
+        return $this->belongsTo(ProductCategory::class, 'product_category_id');
     }
 
     // Ganancia unitaria — usada en reportes sin repetir la resta en cada vista

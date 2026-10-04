@@ -25,10 +25,17 @@ class OrderController extends Controller
         ]);
 
         DB::transaction(function () use ($table, $data) {
-            $order = $table->activeOrder()->first() ?? $table->orders()->create([
-                'status'    => OrderStatus::Open,
-                'opened_at' => now(),
-            ]);
+            $order = $table->activeOrder()->first();
+
+            if ($order) {
+                // Bloquea el pedido mientras se procesa, para serializar taps rápidos consecutivos
+                $order = Order::query()->lockForUpdate()->find($order->id);
+            } else {
+                $order = $table->orders()->create([
+                    'status'    => OrderStatus::Open,
+                    'opened_at' => now(),
+                ]);
+            }
 
             // Bloquea la fila del producto mientras validamos y escribimos, para que dos
             // dispositivos agregando el mismo producto al mismo tiempo no superen el stock real
@@ -169,5 +176,17 @@ class OrderController extends Controller
         });
 
         return redirect()->route('tables.index');
+    }
+
+    // Asigna o actualiza el nombre del cliente en el pedido activo de la mesa
+    public function updateCustomerName(Request $request, Order $order): RedirectResponse
+    {
+        $data = $request->validate([
+            'customer_name' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $order->update(['customer_name' => $data['customer_name'] ?: null]);
+
+        return back();
     }
 }

@@ -6,6 +6,7 @@ import {
     Calculator,
     BarChart3,
     ChevronDown,
+    Tags,
 } from "lucide-vue-next";
 import Dropdown from "@/Components/Dropdown.vue";
 import DropdownLink from "@/Components/DropdownLink.vue";
@@ -20,6 +21,12 @@ const navItems = [
         route: "tables.index",
         active: "tables.*",
         icon: UtensilsCrossed,
+    },
+    {
+        label: "Categorías",
+        route: "product-categories.index",
+        active: "product-categories.*",
+        icon: Tags,
     },
     {
         label: "Productos",

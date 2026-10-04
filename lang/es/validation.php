@@ -198,6 +198,39 @@ return [
     |
     */
 
-  'attributes' => [],
+  'attributes' => [
+    // Login / usuario
+    'email'    => 'correo',
+    'password' => 'contraseña',
+
+    // Productos
+    'name'                    => 'nombre',
+    'cost_price'              => 'costo unitario',
+    'sale_price'              => 'precio de venta',
+    'stock'                   => 'stock',
+    'purchase_unit_label'     => 'nombre del empaque',
+    'units_per_purchase_unit' => 'unidades por empaque',
+    'product_category_id'     => 'categoría',
+    'image'                   => 'imagen',
+
+    // Categorías
+    'sort_order' => 'orden',
+
+    // Pedidos
+    'customer_name' => 'nombre del cliente',
+    'reason'         => 'motivo',
+    'quantity'       => 'cantidad',
+
+    // Reabasto de stock
+    'purchase_quantity'   => 'cantidad comprada',
+    'purchase_total_cost' => 'total pagado',
+    'note'                => 'nota',
+
+    // Ajuste de stock
+    'new_stock' => 'stock real',
+
+    // Pagos
+    'method' => 'método de pago',
+  ],
 
 ];
