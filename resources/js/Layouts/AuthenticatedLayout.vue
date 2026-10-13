@@ -1,5 +1,6 @@
 <script setup>
-import { ref } from "vue";
+import { ref, watch } from "vue";
+import { Link, usePage } from "@inertiajs/vue3";
 import {
     UtensilsCrossed,
     Package,
@@ -11,9 +12,21 @@ import {
 import Dropdown from "@/Components/Dropdown.vue";
 import DropdownLink from "@/Components/DropdownLink.vue";
 import ResponsiveNavLink from "@/Components/ResponsiveNavLink.vue";
-import { Link } from "@inertiajs/vue3";
+import Toast from "@/Components/Toast.vue";
+import { useToast } from "@/composables/useToast";
+
+const page = usePage();
+const toast = useToast();
 
 const showingNavigationDropdown = ref(false);
+
+// Muestra automáticamente los mensajes del servidor. "immediate" cubre el caso en que
+// el mensaje llega junto con un cambio de página (ej. cobrar y volver a Mesas)
+watch(
+    () => page.props.flash,
+    (flash) => toast.showFlash(flash),
+    { immediate: true },
+);
 
 const navItems = [
     {
@@ -228,5 +241,10 @@ const navItems = [
         <main>
             <slot />
         </main>
+        <Toast
+            :message="toast.state.message"
+            :type="toast.state.type"
+            @close="toast.hide()"
+        />
     </div>
 </template>

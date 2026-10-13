@@ -41,58 +41,64 @@ const formatCurrency = (value) =>
             <h1 class="text-xl font-semibold text-ink">Mesas</h1>
         </template>
 
-        <div class="mx-auto max-w-5xl px-4 py-8">
+        <div class="mx-auto max-w-5xl px-4 py-6 sm:py-8">
             <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                 <Link
                     v-for="table in tables"
                     :key="table.id"
                     :href="route('tables.show', table.id)"
-                    class="flex flex-col justify-between rounded-lg border p-4 transition hover:shadow-md"
+                    class="flex min-h-[9.5rem] flex-col justify-between rounded-xl border p-3.5 transition hover:shadow-md active:scale-[0.98] sm:min-h-[8.5rem] sm:p-4"
                     :class="
                         table.status === 'occupied'
                             ? 'border-amber-300 bg-amber-50'
                             : 'border-emerald-300 bg-emerald-50'
                     "
                 >
-                    <div class="flex items-start justify-between">
-                        <span class="text-lg font-semibold text-ink">{{
-                            table.name
-                        }}</span>
-
-                        <span
-                            class="flex items-center gap-1.5 text-xs font-medium text-ink/70"
+                    <!-- Arriba: nombre + estado (apilados en celular, en fila desde sm) -->
+                    <div>
+                        <div
+                            class="flex flex-col items-start gap-1.5 sm:flex-row sm:justify-between"
                         >
-                            <CircleDot
-                                class="h-3.5 w-3.5"
+                            <span
+                                class="whitespace-nowrap text-base font-semibold text-ink sm:text-lg"
+                            >
+                                {{ table.name }}
+                            </span>
+
+                            <span
+                                class="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium sm:text-xs"
                                 :class="
                                     table.status === 'occupied'
-                                        ? 'text-amber-600'
-                                        : 'text-emerald-600'
+                                        ? 'bg-amber-200/70 text-amber-800'
+                                        : 'bg-emerald-200/70 text-emerald-800'
                                 "
-                            />
-                            {{
-                                table.status === "occupied"
-                                    ? "Ocupada"
-                                    : "Libre"
-                            }}
-                        </span>
+                            >
+                                <CircleDot class="h-3 w-3" />
+                                {{
+                                    table.status === "occupied"
+                                        ? "Ocupada"
+                                        : "Libre"
+                                }}
+                            </span>
+                        </div>
+
+                        <p
+                            v-if="table.customer_name"
+                            class="mt-1.5 truncate text-sm font-medium text-accent-dark"
+                        >
+                            {{ table.customer_name }}
+                        </p>
                     </div>
 
-                    <p
-                        v-if="table.customer_name"
-                        class="mt-1 truncate text-sm font-medium text-accent-dark"
-                    >
-                        {{ table.customer_name }}
-                    </p>
-
-                    <div class="mt-4">
+                    <!-- Abajo: capacidad + total, siempre pegados al borde inferior -->
+                    <div>
                         <p class="flex items-center gap-1 text-xs text-ink/70">
                             <Users class="h-3.5 w-3.5" /> Capacidad
                             {{ table.capacity }}
                         </p>
                         <p
                             v-if="table.status === 'occupied'"
-                            class="mt-1 text-lg font-semibold text-ink"
+                            class="mt-1 text-lg font-semibold leading-tight text-ink"
                         >
                             {{ formatCurrency(table.total) }}
                         </p>

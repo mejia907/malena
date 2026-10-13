@@ -25,23 +25,15 @@ class PaymentController extends Controller
         ]);
 
         DB::transaction(function () use ($order, $data) {
-            $order->loadMissing('items.product');
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
 
-            // Valida stock ANTES de descontar. Evita stock negativo si dos meseros
-            // pagan pedidos casi simultáneos con el mismo producto agotándose.
-            foreach ($order->items as $item) {
-                $product = $item->product()->lockForUpdate()->first(); // bloqueo de fila para evitar condición de carrera
-
-                if ($product->stock < $item->quantity) {
-                    throw ValidationException::withMessages([
-                        'stock' => "Stock insuficiente de \"{$product->name}\" (disponible: {$product->stock}).",
-                    ]);
-                }
+            if ($order->status !== OrderStatus::Open) {
+                throw ValidationException::withMessages([
+                    'order' => 'Este pedido ya fue pagado o cancelado.',
+                ]);
             }
 
-            foreach ($order->items as $item) {
-                $item->product()->decrement('stock', $item->quantity);
-            }
+            // El stock ya se descontó al agregar cada producto al pedido: aquí no se toca
 
             $order->update([
                 'status'    => OrderStatus::Closed,
@@ -58,7 +50,7 @@ class PaymentController extends Controller
             ]);
         });
 
-        return redirect()->route('tables.index');
+        return redirect()->route('tables.index')->with('success', 'Cobro registrado. La mesa quedó libre.');
     }
 
     // Anula una venta YA pagada: devuelve el stock y marca el pago como reversado
@@ -66,7 +58,7 @@ class PaymentController extends Controller
     public function reverse(Request $request, Payment $payment): RedirectResponse
     {
         if (! $payment->is_valid) {
-            return back()->withErrors(['payment' => 'Este pago ya fue anulado anteriormente.']);
+            return back()->with('error', 'Este pago ya fue anulado anteriormente.');
         }
 
         $data = $request->validate([
@@ -94,6 +86,6 @@ class PaymentController extends Controller
             }
         });
 
-        return back();
+        return back()->with('info', 'Venta anulada y stock devuelto.');
     }
 }

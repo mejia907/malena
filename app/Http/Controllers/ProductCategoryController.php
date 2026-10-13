@@ -53,9 +53,7 @@ class ProductCategoryController extends Controller
   public function destroy(ProductCategory $productCategory): RedirectResponse
   {
     if ($productCategory->products()->exists()) {
-      return back()->withErrors([
-        'category' => 'No puedes eliminar una categoría que todavía tiene productos asignados. Muévelos primero a otra categoría.',
-      ]);
+      return back()->with('error', 'No puedes eliminar una categoría que todavía tiene productos asignados. Muévelos primero a otra categoría.');
     }
 
     $productCategory->delete();

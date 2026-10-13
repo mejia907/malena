@@ -8,15 +8,19 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\Table;
+use App\Traits\StockReservable;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Validation\ValidationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
 {
-    // Agrega un producto al pedido de la mesa. Si no hay pedido abierto, lo crea.
+    use StockReservable;
+
+    // Agrega un producto al pedido de la mesa y reserva (descuenta) el stock en ese momento.
+    // Si no hay pedido abierto, lo crea.
     public function addItem(Request $request, Table $table): RedirectResponse
     {
         $data = $request->validate([
@@ -30,37 +34,40 @@ class OrderController extends Controller
             if ($order) {
                 // Bloquea el pedido mientras se procesa, para serializar taps rápidos consecutivos
                 $order = Order::query()->lockForUpdate()->find($order->id);
+
+                // Caja pudo cobrarlo justo antes de este toque
+                $this->assertOrderIsOpen($order);
             } else {
                 $order = $table->orders()->create([
-                    'status'    => OrderStatus::Open,
+                    'status'    => OrderStatus::Open->value,
                     'opened_at' => now(),
                 ]);
             }
 
-            // Bloquea la fila del producto mientras validamos y escribimos, para que dos
-            // dispositivos agregando el mismo producto al mismo tiempo no superen el stock real
             $product = Product::query()->lockForUpdate()->findOrFail($data['product_id']);
 
-            $item = $order->items()->where('product_id', $product->id)->first();
-            $currentQuantityInOrder = $item?->quantity ?? 0;
-            $desiredQuantity = $currentQuantityInOrder + $data['quantity'];
-
-            if ($desiredQuantity > $product->stock) {
-                $available = $product->stock - $currentQuantityInOrder;
+            // Con reserva al agregar, products.stock YA descuenta lo que hay en pedidos abiertos
+            // (incluido este). Por eso se compara solo lo que se pide ahora contra lo que queda
+            // disponible; sumar lo que ya está en el pedido lo contaría dos veces.
+            if ($data['quantity'] > $product->stock) {
                 throw ValidationException::withMessages([
-                    'stock' => $available > 0
-                        ? "Solo quedan {$available} unidades disponibles de \"{$product->name}\"."
+                    'stock' => $product->stock > 0
+                        ? "Solo quedan {$product->stock} unidades disponibles de \"{$product->name}\"."
                         : "No hay más stock disponible de \"{$product->name}\".",
                 ]);
             }
 
+            $item = $order->items()->where('product_id', $product->id)->first();
+
             if ($item) {
+                $newQuantity = $item->quantity + $data['quantity'];
+
                 $item->update([
-                    'quantity' => $desiredQuantity,
-                    'subtotal' => $desiredQuantity * $item->unit_price,
+                    'quantity' => $newQuantity,
+                    'subtotal' => $newQuantity * $item->unit_price,
                 ]);
             } else {
-                $order->items()->create([
+                $item = $order->items()->create([
                     'product_id' => $product->id,
                     'quantity'   => $data['quantity'],
                     // Snapshot de precios: no dependen de futuros cambios en el producto
@@ -69,6 +76,9 @@ class OrderController extends Controller
                     'subtotal'   => $product->sale_price * $data['quantity'],
                 ]);
             }
+
+            // Reserva (descuenta) del stock lo que se acaba de agregar
+            $this->syncOrderItemStock($item, $data['quantity']);
 
             $order->recalculateTotals();
 
@@ -80,34 +90,62 @@ class OrderController extends Controller
         return back();
     }
 
-    // Actualiza la cantidad de un item existente (0 = eliminarlo)
-    public function updateItemQuantity(Request $request, OrderItem $item): RedirectResponse
+    // Cambia la cantidad de un item escribiéndola a mano (0 = eliminarlo y devolver el stock)
+    public function updateItemQuantity(Request $request, int $item): RedirectResponse
     {
         $data = $request->validate([
             'quantity' => ['required', 'integer', 'min:0'],
         ]);
 
         DB::transaction(function () use ($item, $data) {
-            $order = $item->order;
+            $itemRow = OrderItem::query()->find($item);
 
-            if ($data['quantity'] === 0) {
-                $item->delete();
-                $order->recalculateTotals();
+            if (! $itemRow) {
+                return; // ya lo eliminó otro dispositivo; el polling refresca la vista
+            }
+
+            $order = Order::query()->lockForUpdate()->findOrFail($itemRow->order_id);
+            $this->assertOrderIsOpen($order);
+
+            $itemRow = OrderItem::query()->lockForUpdate()->find($item);
+
+            if (! $itemRow) {
                 return;
             }
 
-            // Bloquea el producto para validar contra el stock real en este momento
-            $product = Product::query()->lockForUpdate()->find($item->product_id);
+            $product = Product::query()->lockForUpdate()->find($itemRow->product_id);
 
-            if ($data['quantity'] > $product->stock) {
+            if ($data['quantity'] === 0) {
+                // Antes se borraba sin devolver las unidades reservadas
+                if ($product) {
+                    $this->reserveStock($product, $itemRow->quantity, 'release');
+                }
+
+                $itemRow->delete();
+                $order->recalculateTotals();
+
+                return;
+            }
+
+            // Delta = nueva cantidad - actual (positivo = reservar más, negativo = devolver)
+            $delta = $data['quantity'] - $itemRow->quantity;
+
+            // Solo las unidades EXTRA compiten contra el stock disponible
+            if ($delta > $product->stock) {
                 throw ValidationException::withMessages([
-                    'stock' => "Solo hay {$product->stock} unidades disponibles de \"{$product->name}\".",
+                    'stock' => $product->stock > 0
+                        ? "Solo quedan {$product->stock} unidades más disponibles de \"{$product->name}\"."
+                        : "No hay más stock disponible de \"{$product->name}\".",
                 ]);
             }
 
-            $item->update([
+            if ($delta !== 0) {
+                $this->syncOrderItemStock($itemRow, $delta);
+            }
+
+            $itemRow->update([
                 'quantity' => $data['quantity'],
-                'subtotal' => $data['quantity'] * $item->unit_price,
+                'subtotal' => $data['quantity'] * $itemRow->unit_price,
             ]);
 
             $order->recalculateTotals();
@@ -116,23 +154,91 @@ class OrderController extends Controller
         return back();
     }
 
-    // Elimina un item del pedido
-    public function removeItem(OrderItem $item): RedirectResponse
+    // Resta 1 unidad de un item (si llega a 0, lo elimina) y devuelve esa unidad al stock.
+    // Opera sobre la cantidad actual en la base de datos, no sobre la que ve el celular,
+    // así dos toques seguidos o con WiFi lento nunca restan de más.
+    public function decrementItem(int $item): RedirectResponse
     {
         DB::transaction(function () use ($item) {
-            $order = $item->order;
-            $item->delete();
+            $itemRow = OrderItem::query()->find($item);
+
+            if (! $itemRow) {
+                return; // ya fue eliminado desde otro dispositivo
+            }
+
+            $order = Order::query()->lockForUpdate()->findOrFail($itemRow->order_id);
+            $this->assertOrderIsOpen($order);
+
+            $itemRow = OrderItem::query()->lockForUpdate()->find($item);
+
+            if (! $itemRow) {
+                return;
+            }
+
+            if ($itemRow->quantity <= 1) {
+                // Última unidad: se quita la línea y se devuelve esa unidad
+                $product = Product::query()->lockForUpdate()->find($itemRow->product_id);
+
+                if ($product) {
+                    $this->reserveStock($product, $itemRow->quantity, 'release');
+                }
+
+                $itemRow->delete();
+            } else {
+                // Mismo mecanismo que updateItemQuantity cuando la diferencia es negativa
+                $this->syncOrderItemStock($itemRow, -1);
+
+                $newQuantity = $itemRow->quantity - 1;
+
+                $itemRow->update([
+                    'quantity' => $newQuantity,
+                    'subtotal' => $newQuantity * $itemRow->unit_price,
+                ]);
+            }
+
             $order->recalculateTotals();
         });
 
         return back();
     }
 
-    // Traslada un pedido abierto a otra mesa libre (caso de borde: cliente se cambia de mesa)
+    // Quita un item completo del pedido y devuelve todas sus unidades al stock
+    public function removeItem(int $item): RedirectResponse
+    {
+        DB::transaction(function () use ($item) {
+            $itemRow = OrderItem::query()->find($item);
+
+            if (! $itemRow) {
+                return;
+            }
+
+            $order = Order::query()->lockForUpdate()->findOrFail($itemRow->order_id);
+            $this->assertOrderIsOpen($order);
+
+            $itemRow = OrderItem::query()->lockForUpdate()->find($item);
+
+            if (! $itemRow) {
+                return;
+            }
+
+            $product = Product::query()->lockForUpdate()->find($itemRow->product_id);
+
+            if ($product) {
+                $this->reserveStock($product, $itemRow->quantity, 'release');
+            }
+
+            $itemRow->delete();
+            $order->recalculateTotals();
+        });
+
+        return back();
+    }
+
+    // Traslada un pedido abierto a otra mesa libre (el stock ya está reservado, no se toca)
     public function moveTable(Request $request, Order $order): RedirectResponse
     {
         if ($order->status !== OrderStatus::Open) {
-            return back()->withErrors(['order' => 'Solo se puede trasladar un pedido abierto.']);
+            return back()->with('error', 'Solo se puede trasladar un pedido abierto.');
         }
 
         $data = $request->validate([
@@ -151,14 +257,15 @@ class OrderController extends Controller
             $previousTable->update(['status' => TableStatus::Free->value]);
         });
 
-        return redirect()->route('tables.show', $data['table_id']);
+        return redirect()->route('tables.show', $data['table_id'])
+            ->with('success', 'Pedido movido a la nueva mesa.');
     }
 
-    // Cancela un pedido SIN pagar (no hay stock que devolver: nunca se descontó)
+    // Cancela un pedido sin pagar: devuelve al stock todo lo que tenía reservado
     public function cancel(Request $request, Order $order): RedirectResponse
     {
         if ($order->status !== OrderStatus::Open) {
-            return back()->withErrors(['order' => 'Solo se puede cancelar un pedido abierto (sin pagar).']);
+            return back()->with('error', 'Solo se puede cancelar un pedido abierto (sin pagar).');
         }
 
         $data = $request->validate([
@@ -166,6 +273,22 @@ class OrderController extends Controller
         ]);
 
         DB::transaction(function () use ($order, $data) {
+            // Bloqueo y revisión dentro de la transacción: si el botón se toca dos veces
+            // (o caja cobra al mismo tiempo), la segunda llamada no devuelve el stock otra vez
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+
+            if ($order->status !== OrderStatus::Open) {
+                return;
+            }
+
+            foreach ($order->items as $item) {
+                $product = Product::query()->lockForUpdate()->find($item->product_id);
+
+                if ($product) {
+                    $this->reserveStock($product, $item->quantity, 'release');
+                }
+            }
+
             $order->update([
                 'status'        => OrderStatus::Cancelled->value,
                 'cancel_reason' => $data['reason'] ?? null,
@@ -175,7 +298,7 @@ class OrderController extends Controller
             $order->table->update(['status' => TableStatus::Free->value]);
         });
 
-        return redirect()->route('tables.index');
+        return redirect()->route('tables.index')->with('info', 'Pedido cancelado. La mesa quedó libre.');
     }
 
     // Asigna o actualiza el nombre del cliente en el pedido activo de la mesa
@@ -188,5 +311,16 @@ class OrderController extends Controller
         $order->update(['customer_name' => $data['customer_name'] ?: null]);
 
         return back();
+    }
+
+    // Evita modificar un pedido que ya se cobró o canceló desde otro dispositivo
+    // (celular con la pantalla desactualizada): alteraría el historial y devolvería stock de más
+    private function assertOrderIsOpen(Order $order): void
+    {
+        if ($order->status !== OrderStatus::Open) {
+            throw ValidationException::withMessages([
+                'order' => 'Este pedido ya no está abierto, no se puede modificar.',
+            ]);
+        }
     }
 }

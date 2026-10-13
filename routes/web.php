@@ -40,6 +40,7 @@ Route::middleware('auth')->group(function () {
     Route::delete('/order-items/{item}', [OrderController::class, 'removeItem'])->name('orders.removeItem');
     Route::patch('/orders/{order}/move', [OrderController::class, 'moveTable'])->name('orders.move');
     Route::patch('/orders/{order}/cancel', [OrderController::class, 'cancel'])->name('orders.cancel');
+    Route::patch('/order-items/{item}/decrement', [OrderController::class, 'decrementItem'])->name('orders.decrementItem');
 
     // Pagos
     Route::post('/orders/{order}/payment', [PaymentController::class, 'store'])->name('payments.store');

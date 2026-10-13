@@ -1,7 +1,17 @@
 <script setup>
 import { ref } from "vue";
 import { router } from "@inertiajs/vue3";
-import { Search, Star } from "lucide-vue-next";
+import {
+    Search,
+    Star,
+    Banknote,
+    Wallet,
+    ArrowLeftRight,
+    Package2,
+    AlertTriangle,
+    TrendingUp,
+    Receipt,
+} from "lucide-vue-next";
 import Tooltip from "@/Components/Tooltip.vue";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 import Pagination from "@/Components/Pagination.vue";
@@ -82,46 +92,62 @@ const topProductId = props.products.data[0]?.id ?? null;
             >
                 <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
                     <div class="rounded border border-line bg-paper/60 p-3">
-                        <p class="text-xs text-ink/50">Ventas totales</p>
+                        <p class="flex items-center gap-1 text-xs text-ink/70">
+                            <Banknote class="h-3.5 w-3.5" /> Ventas totales
+                        </p>
                         <p class="mt-0.5 text-lg font-semibold text-ink">
                             {{ formatCurrency(summary.total_sales) }}
                         </p>
                     </div>
                     <div class="rounded border border-line bg-paper/60 p-3">
-                        <p class="text-xs text-ink/50">Efectivo</p>
+                        <p class="flex items-center gap-1 text-xs text-ink/70">
+                            <Wallet class="h-3.5 w-3.5" /> Efectivo
+                        </p>
                         <p class="mt-0.5 text-lg font-semibold text-ink">
                             {{ formatCurrency(summary.total_cash) }}
                         </p>
                     </div>
                     <div class="rounded border border-line bg-paper/60 p-3">
-                        <p class="text-xs text-ink/50">Transferencia</p>
+                        <p class="flex items-center gap-1 text-xs text-ink/70">
+                            <ArrowLeftRight class="h-3.5 w-3.5" />
+                            Transferencia
+                        </p>
                         <p class="mt-0.5 text-lg font-semibold text-ink">
                             {{ formatCurrency(summary.total_transfer) }}
                         </p>
                     </div>
                     <div class="rounded border border-line bg-paper/60 p-3">
-                        <p class="text-xs text-ink/50">Costo total</p>
+                        <p class="flex items-center gap-1 text-xs text-ink/70">
+                            <Package2 class="h-3.5 w-3.5" /> Costo total
+                        </p>
                         <p class="mt-0.5 text-lg font-semibold text-ink">
                             {{ formatCurrency(summary.total_cost) }}
                         </p>
                     </div>
-                    <button
-                        class="rounded border border-danger/30 bg-danger/5 p-3 text-left transition hover:border-danger"
-                        @click="showWasteModal = true"
+                    <div
+                        class="rounded border border-danger/30 bg-danger/5 p-3"
                     >
-                        <p class="text-xs text-danger">Pérdida por merma</p>
+                        <p class="flex items-center gap-1 text-xs text-danger">
+                            <AlertTriangle class="h-3.5 w-3.5" /> Pérdida por
+                            merma
+                        </p>
                         <p class="mt-0.5 text-lg font-semibold text-danger">
                             {{ formatCurrency(summary.total_waste_cost) }}
                         </p>
-                    </button>
+                    </div>
                     <div class="rounded border border-ok/30 bg-ok/5 p-3">
-                        <p class="text-xs text-ok">Ganancia neta (con merma)</p>
+                        <p class="flex items-center gap-1 text-xs text-ok">
+                            <TrendingUp class="h-3.5 w-3.5" /> Ganancia neta
+                            (con merma)
+                        </p>
                         <p class="mt-0.5 text-lg font-semibold text-ok">
                             {{ formatCurrency(summary.net_profit_after_waste) }}
                         </p>
                     </div>
                     <div class="rounded border border-line bg-paper/60 p-3">
-                        <p class="text-xs text-ink/50">Pedidos cobrados</p>
+                        <p class="flex items-center gap-1 text-xs text-ink/70">
+                            <Receipt class="h-3.5 w-3.5" /> Pedidos cobrados
+                        </p>
                         <p class="mt-0.5 text-lg font-semibold text-ink">
                             {{ summary.orders_count }}
                         </p>
@@ -138,7 +164,8 @@ const topProductId = props.products.data[0]?.id ?? null;
                 >
                     Productos vendidos en el periodo
                 </h2>
-                <table class="w-full text-sm">
+                <!-- TABLA: pantallas medianas y grandes -->
+                <table class="hidden w-full text-sm md:table">
                     <thead class="border-b border-line text-left text-ink/70">
                         <tr>
                             <th class="px-4 py-2 font-medium">Producto</th>
@@ -184,6 +211,45 @@ const topProductId = props.products.data[0]?.id ?? null;
                         </tr>
                     </tbody>
                 </table>
+
+                <!-- TARJETAS: solo en celular -->
+                <div class="divide-y divide-line md:hidden">
+                    <div
+                        v-for="product in products.data"
+                        :key="product.id"
+                        class="flex items-center justify-between gap-3 px-4 py-3"
+                        :class="{
+                            'bg-accent/5': product.id === topProductId,
+                        }"
+                    >
+                        <div class="min-w-0">
+                            <p class="truncate text-sm font-medium text-ink">
+                                {{ product.name }}
+                                <span
+                                    v-if="product.id === topProductId"
+                                    class="ml-1 inline-flex items-center gap-0.5 text-xs font-medium text-accent-dark"
+                                >
+                                    <Star class="h-3 w-3 fill-accent-dark" />
+                                    más vendido
+                                </span>
+                            </p>
+                            <p class="text-xs text-ink/60">
+                                {{ product.quantity_sold }} unidades
+                            </p>
+                        </div>
+                        <p
+                            class="shrink-0 text-sm font-semibold text-ink"
+                        >
+                            {{ formatCurrency(product.total_sold) }}
+                        </p>
+                    </div>
+                    <p
+                        v-if="products.data.length === 0"
+                        class="px-4 py-6 text-center text-sm text-ink/70"
+                    >
+                        No hay ventas en este periodo.
+                    </p>
+                </div>
                 <div class="flex justify-center border-t border-line py-3">
                     <Pagination :links="products.links" />
                 </div>

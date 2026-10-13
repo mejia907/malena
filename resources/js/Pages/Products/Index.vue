@@ -1,20 +1,11 @@
 <script setup>
 import { ref, computed, nextTick, watch } from "vue";
 import { router } from "@inertiajs/vue3";
-import {
-    RotateCw,
-    Pencil,
-    PowerOff,
-    Power,
-    Plus,
-    PackageX,
-    Search,
-    X,
-    Image as ImageIcon,
-} from "lucide-vue-next";
+import { Plus, Search, X, Image as ImageIcon } from "lucide-vue-next";
 import Tooltip from "@/Components/Tooltip.vue";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 import Pagination from "@/Components/Pagination.vue";
+import ProductActions from "@/Components/ProductActions.vue";
 
 const props = defineProps({
     products: { type: Object, required: true },
@@ -39,6 +30,7 @@ const imageInputRef = ref(null);
 
 const form = ref(emptyForm());
 const errors = ref({});
+const formRef = ref(null);
 
 const wasteReasons = [
     { value: "sin_vender", label: "No se vendió (perecedero del día)" },
@@ -124,14 +116,15 @@ function openCreateForm() {
     form.value = emptyForm();
     errors.value = {};
     clearImageSelection();
+    nextTick(() => formRef.value?.scrollIntoView({ behavior: "smooth" }));
 }
 
 function openEditForm(product) {
     editingProduct.value = product;
     form.value = {
         name: product.name,
-        cost_price: product.cost_price,
-        sale_price: product.sale_price,
+        cost_price: parseFloat(product.cost_price) || 0,
+        sale_price: parseFloat(product.sale_price) || 0,
         stock: product.stock,
         purchase_unit_label: product.purchase_unit_label ?? "",
         units_per_purchase_unit: product.units_per_purchase_unit ?? "",
@@ -140,6 +133,7 @@ function openEditForm(product) {
     };
     imagePreview.value = null; // se usa la imagen ya guardada (product.image_url) hasta que elijan una nueva
     errors.value = {};
+    nextTick(() => formRef.value?.scrollIntoView({ behavior: "smooth" }));
 }
 
 function submit() {
@@ -264,7 +258,10 @@ watch(search, (value) => {
 
         <div class="mx-auto max-w-5xl px-4 py-8 space-y-4">
             <!-- Formulario crear/editar -->
-            <div class="rounded-lg border border-line bg-surface p-4 shadow-sm">
+            <div
+                ref="formRef"
+                class="rounded-lg border border-line bg-surface p-4 shadow-sm"
+            >
                 <h2 class="mb-3 text-sm font-semibold text-ink">
                     {{
                         editingProduct
@@ -546,7 +543,9 @@ watch(search, (value) => {
                         }}
                     </span>
                 </div>
-                <table class="w-full text-sm">
+
+                <!-- TABLA: solo en pantallas medianas y grandes -->
+                <table class="hidden w-full text-sm md:table">
                     <thead
                         class="border-b border-line bg-accent text-left text-white"
                     >
@@ -641,63 +640,14 @@ watch(search, (value) => {
                                     }}
                                 </span>
                             </td>
-                            <td
-                                class="px-4 py-2.5 text-right space-x-3 whitespace-nowrap"
-                            >
-                                <div
-                                    class="flex items-center justify-end gap-1"
-                                >
-                                    <Tooltip text="Registrar compra">
-                                        <button
-                                            class="rounded p-1.5 text-accent-dark hover:bg-accent/10"
-                                            @click="openRestockModal(product)"
-                                        >
-                                            <RotateCw class="h-4 w-4" />
-                                        </button>
-                                    </Tooltip>
-                                    <Tooltip text="Registrar merma/pérdida">
-                                        <button
-                                            class="rounded p-1.5 text-danger hover:bg-danger/10"
-                                            @click="openWasteModal(product)"
-                                        >
-                                            <PackageX class="h-4 w-4" />
-                                        </button>
-                                    </Tooltip>
-                                    <Tooltip text="Editar">
-                                        <button
-                                            class="rounded p-1.5 text-ink/60 hover:bg-paper"
-                                            @click="openEditForm(product)"
-                                        >
-                                            <Pencil class="h-4 w-4" />
-                                        </button>
-                                    </Tooltip>
-                                    <Tooltip
-                                        :text="
-                                            product.is_active
-                                                ? 'Desactivar'
-                                                : 'Reactivar'
-                                        "
-                                    >
-                                        <button
-                                            class="rounded p-1.5 hover:bg-paper"
-                                            :class="
-                                                product.is_active
-                                                    ? 'text-danger'
-                                                    : 'text-ok'
-                                            "
-                                            @click="toggleActive(product)"
-                                        >
-                                            <component
-                                                :is="
-                                                    product.is_active
-                                                        ? PowerOff
-                                                        : Power
-                                                "
-                                                class="h-4 w-4"
-                                            />
-                                        </button>
-                                    </Tooltip>
-                                </div>
+                            <td class="px-4 py-2.5 whitespace-nowrap">
+                                <ProductActions
+                                    :product="product"
+                                    @restock="openRestockModal"
+                                    @waste="openWasteModal"
+                                    @edit="openEditForm"
+                                    @toggle="toggleActive"
+                                />
                             </td>
                         </tr>
                         <tr v-if="products.data.length === 0">
@@ -705,11 +655,150 @@ watch(search, (value) => {
                                 colspan="7"
                                 class="px-4 py-6 text-center text-ink/40"
                             >
-                                No hay productos aún.
+                                {{
+                                    search
+                                        ? `Sin resultados para "${search}".`
+                                        : "No hay productos aún."
+                                }}
                             </td>
                         </tr>
                     </tbody>
                 </table>
+
+                <!-- TARJETAS: solo en celular -->
+                <div class="space-y-2 bg-paper p-2 md:hidden">
+                    <div
+                        v-for="product in products.data"
+                        :key="product.id"
+                        class="rounded-xl border-l-2 border-line bg-surface p-4 shadow-sm"
+                        :class="[
+                            { 'opacity-60': !product.is_active },
+                            product.stock <= 0
+                                ? 'border-l-danger'
+                                : product.stock <= 5
+                                  ? 'border-l-warn'
+                                  : 'border-l-ok',
+                        ]"
+                    >
+                        <!-- Imagen + nombre + estado -->
+                        <div class="flex gap-3">
+                            <div
+                                class="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-line bg-paper"
+                            >
+                                <img
+                                    v-if="product.image_url"
+                                    :src="product.image_url"
+                                    :alt="product.name"
+                                    class="h-full w-full object-contain"
+                                    loading="lazy"
+                                />
+                                <ImageIcon v-else class="h-7 w-7 text-ink/20" />
+                            </div>
+
+                            <div class="min-w-0 flex-1">
+                                <div
+                                    class="flex items-start justify-between gap-2"
+                                >
+                                    <p
+                                        class="font-medium leading-tight text-ink"
+                                    >
+                                        {{ product.name }}
+                                    </p>
+                                    <span
+                                        class="shrink-0 rounded-full px-2 py-0.5 text-xs font-medium"
+                                        :class="
+                                            product.is_active
+                                                ? 'bg-ok/10 text-ok'
+                                                : 'bg-line text-ink/70'
+                                        "
+                                    >
+                                        {{
+                                            product.is_active
+                                                ? "Activo"
+                                                : "Inactivo"
+                                        }}
+                                    </span>
+                                </div>
+                                <p
+                                    v-if="product.category_name"
+                                    class="mt-0.5 text-xs text-ink/40"
+                                >
+                                    {{ product.category_name }}
+                                </p>
+                                <p
+                                    v-if="product.units_per_purchase_unit"
+                                    class="text-xs text-ink/40"
+                                >
+                                    {{
+                                        product.purchase_unit_label || "Paquete"
+                                    }}
+                                    de {{ product.units_per_purchase_unit }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Datos clave -->
+                        <div
+                            class="mt-3 grid grid-cols-4 gap-2 rounded-md bg-paper/60 p-2.5 text-center"
+                        >
+                            <div>
+                                <p class="text-[11px] text-ink/40">Costo</p>
+                                <p class="text-xs font-medium text-ink">
+                                    {{ formatCurrency(product.cost_price) }}
+                                </p>
+                            </div>
+                            <div>
+                                <p class="text-[11px] text-ink/40">Venta</p>
+                                <p class="text-xs font-medium text-ink">
+                                    {{ formatCurrency(product.sale_price) }}
+                                </p>
+                            </div>
+                            <div>
+                                <p class="text-[11px] text-ink/40">Margen</p>
+                                <p class="text-xs font-medium text-ink">
+                                    {{ formatCurrency(product.margin) }}
+                                </p>
+                            </div>
+                            <div>
+                                <p class="text-[11px] text-ink/40">Stock</p>
+                                <p
+                                    class="text-xs font-semibold"
+                                    :class="
+                                        product.stock <= 0
+                                            ? 'text-danger'
+                                            : 'text-ink'
+                                    "
+                                >
+                                    {{ product.stock }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Acciones -->
+                        <div class="mt-3">
+                            <ProductActions
+                                show-labels
+                                :product="product"
+                                @restock="openRestockModal"
+                                @waste="openWasteModal"
+                                @edit="openEditForm"
+                                @toggle="toggleActive"
+                            />
+                        </div>
+                    </div>
+
+                    <p
+                        v-if="products.data.length === 0"
+                        class="px-4 py-8 text-center text-sm text-ink/40"
+                    >
+                        {{
+                            search
+                                ? `Sin resultados para "${search}".`
+                                : "No hay productos aún."
+                        }}
+                    </p>
+                </div>
+
                 <div class="flex justify-center border-t border-line py-3">
                     <Pagination :links="products.links" />
                 </div>
@@ -719,10 +808,10 @@ watch(search, (value) => {
         <!-- Modal: reabastecer stock -->
         <div
             v-if="restockingProduct"
-            class="fixed inset-0 flex items-center justify-center bg-ink/30"
+            class="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-4"
             @click.self="restockingProduct = null"
         >
-            <div class="w-full max-w-sm rounded-lg bg-surface p-5">
+            <div class="max-h-[90vh] w-full max-w-sm rounded-lg bg-surface p-5">
                 <h2 class="mb-1 font-semibold text-ink">
                     Nueva compra: {{ restockingProduct.name }}
                 </h2>
@@ -819,10 +908,10 @@ watch(search, (value) => {
         <!-- Modal Merma Stock -->
         <div
             v-if="wastingProduct"
-            class="fixed inset-0 flex items-center justify-center bg-ink/30"
+            class="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-4"
             @click.self="wastingProduct = null"
         >
-            <div class="w-full max-w-sm rounded-lg bg-surface p-5">
+            <div class="max-h-[90vh] w-full max-w-sm rounded-lg bg-surface p-5">
                 <h2 class="mb-1 font-semibold text-ink">
                     Registrar merma: {{ wastingProduct.name }}
                 </h2>
